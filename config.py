@@ -1,0 +1,9 @@
+SERVER = "irc.chat.twitch.tv"
+PORT = 6667
+NICKNAME = ""
+DISCORD_TOKEN = ""
+TWITCH_TOKEN = ""
+CHANNEL = ""
+#NUM_MAX_LOGGERS = 10
+CLIENT_ID = ""
+CLIENT_SECRET = ""
