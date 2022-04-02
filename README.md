@@ -25,7 +25,7 @@ $autolog "user": Starts logging when a user goes live
 
 # TODO
 Implement a watchlist of Twitch channels that the autolog command uses rather than direct specification.  
-Fix/implement embed notification for when channels go live.
-Insert Twitch messages into a searchable SQL database and export filterable datasets.
-Capture user related metadata of chat messages
-Capture non-user related notifications/messages in Twitch Chats e.g, bit donations
+Fix/implement embed notification for when channels go live.  
+Insert Twitch messages into a searchable SQL database and export filterable datasets.  
+Capture user related metadata of chat messages  
+Capture non-user related notifications/messages in Twitch Chats e.g, bit donations  
