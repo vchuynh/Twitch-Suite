@@ -15,10 +15,10 @@ CHANNEL = "channel that you want to log"
 Run logbot.py with python and you should be all set.   
 # Commands
 $help:           You're already here.  
-$check <user>:   Checks if Twitch user is currently live         
+$check "user":   Checks if Twitch user is currently live         
 $hello:          The bot responds with Hello  
-$start <user>:   Bot begins logging user's twitch chat  
+$start "user":   Bot begins logging user's twitch chat  
 $stop:           Bot stops logging user's twitch chat  
 $logs:           Returns list of .txt log files  
-$upload <*.txt>: Uploads .txt file if exists  
-$autolog <user>: Starts logging when a user goes live
+$upload "*.txt": Uploads .txt file if exists  
+$autolog "user": Starts logging when a user goes live
