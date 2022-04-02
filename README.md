@@ -21,3 +21,4 @@ $start <user>:   Bot begins logging user's twitch chat
 $stop:           Bot stops logging user's twitch chat  
 $logs:           Returns list of .txt log files  
 $upload <*.txt>: Uploads .txt file if exists  
+$autolog <user>: Starts logging when a user goes live
