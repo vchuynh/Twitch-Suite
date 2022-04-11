@@ -2,8 +2,10 @@
 Discord bot that has integrated functionality with Twitch.  Currently, the main feature the bot has is the ability to log a Twitch chat and export it to a discord channel.  More features are planned to incorporate greater functionalities from the Twitch API.  
 # Requirements
 - Python 3.x  
+- asyncio
 - discord  
-- requests  
+- requests 
+- aiohttp 
 - emoji  
 # Setup
 Edit these variables in the config.py file.  Do not remove quotes when inputting information  
