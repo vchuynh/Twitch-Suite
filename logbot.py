@@ -145,6 +145,22 @@ class LogBot(discord.Client):
                 print("{} not found".format(user)) #test
         return status, stream_data
     
+    async def get_box_art_url(self, game_id, game_name):
+        stream_data = None
+        box_art_url = None
+        try:
+            headers = {"Client-ID": config.TWITCH_CLIENT_ID, "Authorization": "Bearer " + self.access_token}
+            async with aiohttp.ClientSession(headers = headers) as session:
+                async with session.get("https://api.twitch.tv/helix/games?id=" + game_id + "&name=" + game_name) as r:
+                    r.raise_for_status()
+                    stream_data = await r.json()
+                    print(stream_data)
+                    box_art_url = stream_data["data"][0]["box_art_url"]
+                    print(box_art_url)
+        except aiohttp.ClientResponseError:
+            print("{} not found".format(game_name)) #test
+        return box_art_url
+    
     async def autolog(self, message, user):
         status = TwitchStatus.OFFLINE
         #self.is_logging = True
@@ -176,7 +192,14 @@ class LogBot(discord.Client):
                 #self.is_auto_logging = True
                 current.filename = user + " " + datetime.now().strftime("%Y-%m-%d %Hh%Mm%Ss") + ".txt"
                 await message.channel.send("Auto Logger for {} is running".format(user))
-                embed = discord.Embed(title = "{} is live".format(user), thumbnail = stream_data["data"][0]["thumbnail_url"].format(width = 1280, height = 720), )
+                box_art_url = await self.get_box_art_url(stream_data["data"][0]["game_id"], stream_data["data"][0]["game_name"])
+                embed = discord.Embed(url = "https://twitch.tv/" + user, title = stream_data["data"][0]["title"])
+                embed.set_thumbnail(url = box_art_url.format(width = 600, height = 800))
+                embed.add_field(name = "Title", value = stream_data["data"][0]["title"], inline = False)
+                if stream_data["data"][0]["game_name"]:
+                   embed.add_field(name = "Game", value = stream_data["data"][0]["game_name"], inline = False) 
+                embed.add_field(name = "Status", value = "Live with {} viewers".format(stream_data["data"][0]["viewer_count"]), inline = True)
+                embed.set_image(url = stream_data["data"][0]["thumbnail_url"].format(width = 1280, height = 720))
                 await message.channel.send(embed = embed)
                 loop = asyncio.get_event_loop()
                 loop.create_task(current.on_pubmsg())
