@@ -30,8 +30,10 @@ $focus "user"    For dev use only, prints actively logged user's chat to console
 - "$stop xqcow" will signal to the bot to stop logging xqcow's chat.  This may take up to 3 minutes.  If the bot was actively logging chat, any further messages will not be saved and the current log's filename will be notified in Discord.  
 
 # Features
-- Automatically log Twitch chat of up to 10 channels
-- 
+- Automatically log Twitch chats of up to 10 channels
+- Notfication when a channel goes live
+- Ability to upload completed logs to a discord channel
+- Ability to read chat from console
 # TODO
 - ~Implement a watchlist of Twitch channels that the autolog command uses rather than direct specification.~
 - Fix/implement embed notification for when channels go live.  
