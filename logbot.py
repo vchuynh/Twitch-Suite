@@ -39,7 +39,7 @@ class Logger():
         self.port = config.PORT
         self.nickname = config.NICKNAME
         self.token = config.TWITCH_TOKEN
-        self.channel = config.CHANNEL
+        self.channel = "#xqcow"
         self.filename = "chat.txt"
         self.is_on = True
         self.is_printing_chat = False
