@@ -16,18 +16,26 @@ CHANNEL = "channel that you want to log"
 # How To Use
 Run logbot.py with python and you should be all set.   
 # Commands
-$help:           You're already here.  
-$check "user":   Checks if Twitch user is currently live         
+$help:           You're already here.          
 $hello:          The bot responds with Hello  
-$start "user":   Bot begins logging user's twitch chat  
-$stop:           Bot stops logging user's twitch chat  
+$autolog "user"  Automatically logs chat each time user goes live and offline. (Per VOD logs)
+$start "user"    Bot begins logging user's twitch chat. (WIP command)
+$stop: "arg"     Bot stops logging a specified user's twitch chat.  Specifying "all" instead of a user, stops all chat loggers
 $logs:           Returns list of .txt log files  
-$upload "*.txt": Uploads .txt file if exists  
-$autolog "user": Starts logging when a user goes live
+$upload "{}.txt"  Uploads .txt file to chat if exists  
+$focus "user"    For dev use only, prints actively logged user's chat to console.
 
+# Example
+- "$autolog xqcow" will automatically check every 15 seconds if xqcow is online.  When xqcow is detected live, the bot will automatically start logging xqcow's chat to a file.  The bot will notify in Discord when a user is live.  When xqcow goes offline, the file is completed and the bot goes back to checking if xqcow goes live again.  Once the log file is finalized, the bot will notify that xqcow has gone offline and will include the filename of the log.
+- "$stop xqcow" will signal to the bot to stop logging xqcow's chat.  This may take up to 3 minutes.  If the bot was actively logging chat, any further messages will not be saved and the current log's filename will be notified in Discord.  
+
+# Features
+- Automatically log Twitch chat of up to 10 channels
+- 
 # TODO
-- Implement a watchlist of Twitch channels that the autolog command uses rather than direct specification.  
+- ~~Implement a watchlist of Twitch channels that the autolog command uses rather than direct specification.  ~~
 - Fix/implement embed notification for when channels go live.  
 - Insert Twitch messages into a searchable SQL database that can export filterable datasets.  
 - Capture user related metadata of chat messages  
 - Capture non-user related notifications/messages in Twitch Chats e.g, bit donations  
+- Implement logging chat at any time for multiple channels 
