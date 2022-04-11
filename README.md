@@ -33,7 +33,7 @@ $focus "user"    For dev use only, prints actively logged user's chat to console
 - Automatically log Twitch chat of up to 10 channels
 - 
 # TODO
-- ~~Implement a watchlist of Twitch channels that the autolog command uses rather than direct specification.
+- ~Implement a watchlist of Twitch channels that the autolog command uses rather than direct specification.~
 - Fix/implement embed notification for when channels go live.  
 - Insert Twitch messages into a searchable SQL database that can export filterable datasets.  
 - Capture user related metadata of chat messages  
