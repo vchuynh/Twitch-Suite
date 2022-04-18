@@ -9,6 +9,7 @@ import aiohttp
 from datetime import datetime
 from enum import Enum
 from emoji import demojize
+from collections import deque
 
 HELP_STR = """
 $help:           You're already here.
@@ -28,11 +29,6 @@ class TwitchStatus(Enum):
     UNAUTHORIZED = 3
     ERROR = 4
 
-#class Channel():
-#    def __init__(self) -> None:
-#        self.user = ""
-        
-
 class Logger():
     def __init__(self):
         self.server = config.SERVER
@@ -43,6 +39,7 @@ class Logger():
         self.filename = "chat.txt"
         self.is_on = True
         self.is_printing_chat = False
+        #self.last_hundred_messages = []
         
     async def on_pubmsg(self):
         reader, writer = await asyncio.open_connection(self.server, self.port)
@@ -51,7 +48,6 @@ class Logger():
         writer.write(f"JOIN {self.channel}\n".encode("utf-8"))
         await writer.drain()
         file = open(self.filename, "w", encoding = "utf-8")
-        #TODO stop when autolog() checks streamer is offline
         while self.is_on:
             resp = (await reader.read(2048)).decode("utf-8")
             if resp.startswith("PING"):
@@ -59,6 +55,7 @@ class Logger():
                 await writer.drain()
             elif len(resp) > 0:
                 clean_str = demojize(resp)
+                #self.last_hundred_messages.append(clean_str)
                 file.write(clean_str)
                 if self.is_printing_chat:
                     print(clean_str)
@@ -120,15 +117,31 @@ class LogBot(discord.Client):
 
     #probably should consolidate these Twitch functions inside the logger
     #might make it cleaner/easier in the future
+
+    async def get_user(self, user):
+        user_data = None
+        try:
+            headers = {"Client-ID": config.TWITCH_CLIENT_ID, "Authorization": "Bearer " + self.access_token}
+            async with aiohttp.ClientSession(headers = headers) as session:
+                async with session.get("https://api.twitch.tv/helix/users?login=" + user, raise_for_status = True) as resp:
+                    print("{}".format(resp.status))
+                    #resp.raise_for_status()
+                    #r.raise_for_status()
+                    user_data = await resp.json()
+                    print(user_data)
+        except aiohttp.ClientResponseError as err:
+            print("{}".format(err.status))
+            print("GET_USER IS BROKE YO")
+        return user_data
+
     async def get_status(self, user):
         status = TwitchStatus.ERROR
         stream_data = None
         try:
             headers = {"Client-ID": config.TWITCH_CLIENT_ID, "Authorization": "Bearer " + self.access_token}
             async with aiohttp.ClientSession(headers = headers) as session:
-                async with session.get("https://api.twitch.tv/helix/streams?user_login=" + user) as r:
-                    r.raise_for_status()
-                    stream_data = await r.json()
+                async with session.get("https://api.twitch.tv/helix/streams?user_login=" + user, raise_for_status = True) as resp:
+                    stream_data = await resp.json()
             if stream_data is None or not stream_data["data"]:
                 status = TwitchStatus.OFFLINE
                 print("{} is offline".format(user)) #test
@@ -140,9 +153,12 @@ class LogBot(discord.Client):
                 status = TwitchStatus.UNAUTHORIZED
                 self.set_access_token()
                 print("unauthorized for {}".format(user)) #test
+            # doesn't work, but keep it here for now i guess
             elif err.status == 404:
                 status = TwitchStatus.NOT_FOUND
                 print("{} not found".format(user)) #test
+        except aiohttp.ClientConnectorError as err:
+            print("Connection Error", str(err))
         return status, stream_data
     
     async def get_box_art_url(self, game_id, game_name):
@@ -158,10 +174,13 @@ class LogBot(discord.Client):
                     box_art_url = stream_data["data"][0]["box_art_url"]
                     print(box_art_url)
         except aiohttp.ClientResponseError:
-            print("{} not found".format(game_name)) #test
+            print("Game box art not found")
         return box_art_url
     
     async def autolog(self, message, user):
+        if not await self.get_user(user):
+            await message.channel.send("{} not found. Autolog stopped".format(user))
+            return
         status = TwitchStatus.OFFLINE
         #self.is_logging = True
         self.is_auto_logging = True
@@ -192,17 +211,22 @@ class LogBot(discord.Client):
                 #self.is_auto_logging = True
                 current.filename = user + " " + datetime.now().strftime("%Y-%m-%d %Hh%Mm%Ss") + ".txt"
                 await message.channel.send("Auto Logger for {} is running".format(user))
-                box_art_url = await self.get_box_art_url(stream_data["data"][0]["game_id"], stream_data["data"][0]["game_name"])
-                embed = discord.Embed(url = "https://twitch.tv/" + user, title = stream_data["data"][0]["title"])
-                embed.set_thumbnail(url = box_art_url.format(width = 600, height = 800))
-                embed.add_field(name = "Title", value = stream_data["data"][0]["title"], inline = False)
-                if stream_data["data"][0]["game_name"]:
-                   embed.add_field(name = "Game", value = stream_data["data"][0]["game_name"], inline = False) 
-                embed.add_field(name = "Status", value = "Live with {} viewers".format(stream_data["data"][0]["viewer_count"]), inline = True)
-                embed.set_image(url = stream_data["data"][0]["thumbnail_url"].format(width = 1280, height = 720))
-                await message.channel.send(embed = embed)
-                loop = asyncio.get_event_loop()
-                loop.create_task(current.on_pubmsg())
+                try:
+                    box_art_url = await self.get_box_art_url(stream_data["data"][0]["game_id"], stream_data["data"][0]["game_name"])
+                    embed = discord.Embed(url = "https://twitch.tv/" + user, title = stream_data["data"][0]["title"])
+                    embed.set_thumbnail(url = box_art_url.format(width = 600, height = 800))
+                    embed.add_field(name = "Title", value = stream_data["data"][0]["title"], inline = False)
+                    if stream_data["data"][0]["game_name"]:
+                        embed.add_field(name = "Game", value = stream_data["data"][0]["game_name"], inline = False) 
+                    embed.add_field(name = "Status", value = "Live with {} viewers".format(stream_data["data"][0]["viewer_count"]), inline = True)
+                    embed.set_image(url = stream_data["data"][0]["thumbnail_url"].format(width = 1280, height = 720))
+                    await message.channel.send(embed = embed)
+                except:
+                    print("get_box_art_url() failed probably")
+                #loop = asyncio.get_event_loop()
+                #loop.create_task(current.on_pubmsg())
+                task = asyncio.create_task(current.on_pubmsg())
+                await task
                 await asyncio.sleep(15)
                 #break
             elif status == TwitchStatus.OFFLINE and current.is_on:
@@ -247,7 +271,7 @@ class LogBot(discord.Client):
             words = message.content.split()
             if len(words) > 2:
                 await message.channel.send("Invalid usage of check command")
-            elif not config.CLIENT_ID or not config.CLIENT_SECRET:
+            elif not config.TWITCH_CLIENT_ID or not config.TWITCH_CLIENT_SECRET:
                 await message.channel.send("Client id and secret not registered")
             else:
                 #makesure to cleanup and demojize words[1]
@@ -276,8 +300,10 @@ class LogBot(discord.Client):
                 #TODO: Implement naming system that accounts for multiple logs in one day
                 self.chat_logger.filename = "log{}.txt".format(len(self.files) + 1)
                 await message.channel.send("Logger for {} is running".format(self.chat_logger.channel))
-                loop = asyncio.get_event_loop()
-                loop.create_task(self.chat_logger.on_pubmsg())
+                #loop = asyncio.get_event_loop()
+                #loop.create_task()
+                task = asyncio.create_task(self.chat_logger.on_pubmsg())
+                await task
         elif message.content.startswith("$stop"):
             words = message.content.split()
             #specifying a logger means its an autologger
@@ -308,6 +334,7 @@ class LogBot(discord.Client):
                 self.is_auto_logging = False
                 await message.channel.send("Logger for {} is stopped".format(self.chat_logger.channel))
         elif message.content.startswith("$logs"):
+            self.update_filelist()
             await message.channel.send(self.files)
         elif message.content.startswith("$upload"):
             words = message.content.split()
@@ -348,8 +375,10 @@ class LogBot(discord.Client):
                 await message.channel.send("All {} loggers are being used".format(config.NUM_MAX_LOGGERS))
             else:
                 #we should clean words[1] up with demojize and isalnum
-                loop = asyncio.get_event_loop()
-                loop.create_task(self.autolog(message, words[1]))
+                #loop = asyncio.get_event_loop()
+                #loop.create_task()
+                task = asyncio.create_task(self.autolog(message, words[1]))
+                await task
         elif message.content.startswith("$focus"):
             words = message.content.split()
             await message.channel.send("This is only for users with access to this " \
@@ -389,6 +418,12 @@ class LogBot(discord.Client):
                     #  Case:  Channel was not being logged
                     except TypeError:
                         await message.channel.send("Channel not being logged")
+
+        elif message.content.startswith("$exists"):
+            words = message.content.split()
+            await self.get_user(words[1])
+        elif message.content.startswith("$watchlist"):
+            await message.channel.send("{}".format(self.watchlist))
 
 def main():
     client = LogBot()
