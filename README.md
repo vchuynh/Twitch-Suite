@@ -42,3 +42,4 @@ $focus "user"    For dev use only, prints actively logged user's chat to console
 - Capture user related metadata of chat messages  
 - Capture non-user related notifications/messages in Twitch Chats e.g, bit donations  
 - Implement logging chat at any time for multiple channels 
+- Record livestreams
