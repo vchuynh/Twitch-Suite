@@ -3,14 +3,15 @@ from gc import get_stats
 import discord
 import config
 import os
-#import datetime
 import requests
 import aiohttp
 from datetime import datetime
 from enum import Enum
 from emoji import demojize
-from collections import deque
+#from collections import deque
 import logging
+#import subprocess
+import traceback
 
 HELP_STR = """
 $help:           You're already here.
@@ -22,6 +23,7 @@ $logs:           Returns list of .txt log files
 $upload <*.txt>: Uploads .txt file if exists
 $autolog <user>: Starts logging when a user goes live
 """
+background_tasks = set()
 
 class TwitchStatus(Enum):
     ONLINE = 0
@@ -54,7 +56,16 @@ class Logger():
         await writer.drain()
         file = open(self.filename, "w", encoding = "utf-8")
         while self.is_on:
-            resp = (await reader.read(2048)).decode("utf-8")
+            try:
+                resp = (await reader.read(2048)).decode("utf-8")
+            except ConnectionResetError:
+                file.write("ConnectionResetError probably, see log file")
+                file.write("Reopening Chat Connection")
+                traceback.print_exc(file = "log_exceptions.txt")
+                reader, writer = await asyncio.open_connection(self.server, self.port)
+                writer.write(f"PASS {self.token}\n".encode("utf-8"))
+                writer.write(f"NICK {self.nickname}\n".encode("utf-8"))
+                writer.write(f"JOIN {self.channel}\n".encode("utf-8"))
             now = datetime.now()
             if resp.startswith("PING"):
                 writer.write("Pong\n".encode("utf-8"))
@@ -62,7 +73,6 @@ class Logger():
             elif len(resp) > 0:
                 date_time = now.strftime("[%Y/%m/%d %H:%M:%S UTC]")
                 clean_str = date_time + demojize(resp)
-                #self.last_hundred_messages.append(clean_str)
                 file.write(clean_str)
                 if self.is_printing_chat:
                     print(clean_str)
@@ -88,18 +98,11 @@ class LogBot(discord.Client):
         self.is_logging = False
         self.is_auto_logging = False
 
-        #for manual start and stop chat logging
         self.chat_logger = Logger()
 
-        #for autologging when channel goes live
-        #self.logger_list = []
         self.logger_dict = {}
         self.channel_printing_logger = None
-        # <string, int> channel/user name to index in logger_list
-        # Probably slower to continually update this since it's not constant
-        #self.logger_map = {}
-
-        #self.index_printing_logger = None
+        self.quality = "best"
         super().__init__(*args, **kwargs)
         
     def initialize(self):
@@ -110,7 +113,6 @@ class LogBot(discord.Client):
     #do it once on startup, append the logs inside autolog() after finished
     def update_filelist(self):
         for file in os.listdir():
-            #i really don't like this line; i feel like a double loop is unnecessary
             if file.endswith(".txt") and file not in self.files:
                 self.files.append(file)
             elif file == "watchlist.txt":
@@ -129,9 +131,6 @@ class LogBot(discord.Client):
             async with session.post(self.oauth_url) as resp:
                 self.access_token = (resp.json())["access_token"]
 
-    #probably should consolidate these Twitch functions inside the logger
-    #might make it cleaner/easier in the future
-
     async def get_user(self, user):
         user_data = None
         try:
@@ -139,8 +138,6 @@ class LogBot(discord.Client):
             async with aiohttp.ClientSession(headers = headers) as session:
                 async with session.get("https://api.twitch.tv/helix/users?login=" + user, raise_for_status = True) as resp:
                     print("{}".format(resp.status))
-                    #resp.raise_for_status()
-                    #r.raise_for_status()
                     user_data = await resp.json()
                     print(user_data)
         except aiohttp.ClientResponseError as err:
@@ -174,7 +171,34 @@ class LogBot(discord.Client):
         except aiohttp.ClientConnectorError as err:
             print("Connection Error", str(err))
         return status, stream_data
-    
+
+    #REQUIRES type in ["id", "user_id", "game_id"]
+    #INPUT id(video), user_id, game_id
+    #EFFECTS Returns Get Videos Response JSON
+    async def get_videos(self, id, type):
+        video_data = None
+        try:
+            headers = {"Client-ID": config.TWITCH_CLIENT_ID, "Authorization": "Bearer " + self.access_token}
+            async with aiohttp.ClientSession(headers = headers) as session:
+                async with session.get("https://api.twitch.tv/helix/videos?" + type + "=" + id, raise_for_status = True) as resp:
+                    video_data = await resp.json()
+            if video_data is None or not video_data["data"]:
+                status = TwitchStatus.OFFLINE
+                print("{} is invalid or wrong type".format(id)) #test
+            else:
+                status = TwitchStatus.ONLINE
+                print("{}".format(video_data)) #test
+        except aiohttp.ClientResponseError as err:
+            if err.status == 401:
+                status = TwitchStatus.UNAUTHORIZED
+                await self.set_access_token_async()
+            # doesn't work, but keep it here for now i guess
+            elif err.status == 404:
+                status = TwitchStatus.NOT_FOUND
+        except aiohttp.ClientConnectorError as err:
+            print("Connection Error", str(err))
+        return video_data
+
     async def get_box_art_url(self, game_id, game_name):
         stream_data = None
         box_art_url = None
@@ -191,7 +215,7 @@ class LogBot(discord.Client):
             print("Game box art not found")
         return box_art_url
     
-    async def autolog(self, message, user):
+    async def autolog(self, message, user, is_recording):
         if not await self.get_user(user):
             await message.channel.send("{} not found. Autolog execution prevented".format(user))
             return
@@ -207,26 +231,20 @@ class LogBot(discord.Client):
         current.is_on = False
         self.num_logging += 1
 
-        # if we remove individual channels, goign to invalidate index
-        #index = len(self.logger_list)
-        #self.logger_map[user] = len(self.logger_list)
-        #self.logger_list.append(current)
+
         self.logger_dict[user] = current
-        #perhaps stuff above should be shoved back earlier to prev function
         
         #shouldnt be a slowdown since max 10 bots
         while user in self.watchlist:
-            #this should be like a forloop of ever
             status, stream_data = await self.get_status(user)
             if status == TwitchStatus.ONLINE and not current.is_on:
-                #self.chat_logger.channel = "#" + user
-                #self.chat_logger.is_on = True
+                print(stream_data)
                 current.is_on = True
-                #self.is_logging = True
-                #self.is_auto_logging = True
-                current.filename = user + " " + datetime.now().strftime("%Y-%m-%d %Hh%Mm%Ss") + ".txt"
+                file_name = user + " " + datetime.now().strftime("%Y-%m-%d %Hh%Mm%Ss")
+                current.filename = file_name + ".txt"
                 await message.channel.send("Auto Logger for {} is running".format(user))
-                try:
+                #TODO: CASE WHERE SOMEONE STREAMS NO CATEGORY
+                try: 
                     box_art_url = await self.get_box_art_url(stream_data["data"][0]["game_id"], stream_data["data"][0]["game_name"])
                     embed = discord.Embed(url = "https://twitch.tv/" + user, title = stream_data["data"][0]["title"])
                     embed.set_thumbnail(url = box_art_url.format(width = 600, height = 800))
@@ -238,13 +256,10 @@ class LogBot(discord.Client):
                     await message.channel.send(embed = embed)
                 except:
                     print("get_box_art_url() failed probably")
-                loop = asyncio.get_event_loop()
-                current_task = loop.create_task(current.on_pubmsg())
-                #task = asyncio.create_task(current.on_pubmsg())
-                #await task
-                #await current.on_pubmsg()
+                current_task = asyncio.create_task(current.on_pubmsg())
+                background_tasks.add(current_task)
+                current_task.add_done_callback(background_tasks.discard)
                 await asyncio.sleep(15)
-                #break
             elif status == TwitchStatus.OFFLINE and current.is_on:
                 #this stops the chat logger
                 current.is_on = False
@@ -266,7 +281,6 @@ class LogBot(discord.Client):
             await message.channel.send(embed = embed)
 
         try:
-            #self.logger_list.remove(current)
             del self.logger_dict[user]
             self.num_logging -= 1
         except KeyError:
@@ -303,6 +317,7 @@ class LogBot(discord.Client):
                     await message.channel.send("Unauthorized")
                 elif status == 4:
                     await message.channel.send("Error")
+        #probably should remove this below
         elif message.content.startswith("$start"):
             words = message.content.split()
             if self.is_logging:
@@ -317,11 +332,10 @@ class LogBot(discord.Client):
                 #TODO: Implement naming system that accounts for multiple logs in one day
                 self.chat_logger.filename = "log{}.txt".format(len(self.files) + 1)
                 await message.channel.send("Logger for {} is running".format(self.chat_logger.channel))
-                loop = asyncio.get_event_loop()
-                start_task = loop.create_task(self.chat_logger.on_pubmsg())
-                #task = asyncio.create_task(self.chat_logger.on_pubmsg())
-                #await self.chat_logger.on_pubmsg()
-                #await task
+                
+                current_task = asyncio.create_task(self.chat_logger.on_pubmsg())
+                background_tasks.add(current_task)
+                current_task.add_done_callback(background_tasks.discard)
         elif message.content.startswith("$stop"):
             words = message.content.split()
             #specifying a logger means its an autologger
@@ -393,11 +407,9 @@ class LogBot(discord.Client):
                 await message.channel.send("All {} loggers are being used".format(config.NUM_MAX_LOGGERS))
             else:
                 #we should clean words[1] up with demojize and isalnum
-                loop = asyncio.get_event_loop()
-                autolog_task = loop.create_task(self.autolog(message, words[1]))
-                #task = asyncio.create_task(self.autolog(message, words[1]))
-                #await task
-                #await self.autolog(message, words[1])
+                autolog_task = asyncio.create_task(self.autolog(message, words[1], False))
+                background_tasks.add(autolog_task)
+                autolog_task.add_done_callback(background_tasks.discard)
         elif message.content.startswith("$focus"):
             words = message.content.split()
             await message.channel.send("This is only for users with access to this " \
@@ -465,9 +477,15 @@ class LogBot(discord.Client):
                     print("Channel not being logged")
 
 def main():
+
     client = LogBot()
     client.initialize()
-    #logging.basicConfig(level=logging.DEBUG)
+    logger = logging.getLogger('discord')
+    logger.setLevel(logging.DEBUG)
+    handler = logging.FileHandler(filename='discordlog.log', encoding='utf-8', mode='w')
+    handler.setFormatter(logging.Formatter('%(asctime)s:%(levelname)s:%(name)s: %(message)s'))
+    logger.addHandler(handler)
+    logging.basicConfig(filename = "logfile.txt", encoding='utf-8', level=logging.DEBUG)
     client.run(config.DISCORD_TOKEN)
 
 if __name__ == "__main__":
