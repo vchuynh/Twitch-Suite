@@ -80,12 +80,11 @@ class Logger():
                         elif "PRIVMSG" in message:
                             chatter = (message.split('!')[0])[1:]
                             msg = message.split(f"#{self.channel}", 1)[1][2:]
-
-                        await cursor.execute("INSERT INTO messages \
-                                            (stream_id, chatter, channel, \
-                                             message, datetime) VALUES(?, ?, ?, ?, ?);", \
-                                            (stream_id, chatter, self.channel, msg, date_time))
-                        await conn.commit()
+                            await cursor.execute("INSERT INTO messages \
+                                                (stream_id, chatter, channel, \
+                                                message, datetime) VALUES(?, ?, ?, ?, ?);", \
+                                                (stream_id, chatter, self.channel, msg, date_time))
+                            await conn.commit()
 
                         clean_str = f"[{date_time} UTC]{message}"
                         file.write(clean_str)
