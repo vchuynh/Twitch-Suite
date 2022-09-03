@@ -12,6 +12,7 @@ from emoji import demojize
 #from collections import deque
 import logging
 import aiosqlite
+import websockets
 
 
 HELP_STR = """
@@ -35,9 +36,9 @@ class TwitchStatus(Enum):
 
 class Logger():
     def __init__(self):
-        self.session = aiohttp.ClientSession()
+        #self.session = aiohttp.ClientSession()
         self.websocket = None
-        self.server = config.WS_IRC_SERVER
+        self.server = config.WSS_IRC_SERVER
         self.port = config.WSS_IRC_SERVER_PORT
         self.nickname = config.NICKNAME
         self.token = config.TWITCH_TOKEN
@@ -46,49 +47,65 @@ class Logger():
         self.is_on = True
         self.is_printing_chat = False
         #self.vod_id = ""
+        #self.last_hundred_messages = []
     
     def __str__(self) -> str:
         return "Server: {}, Port: {}, Channel: {}, Filename: {}, is_on: {}, is_printing_chat: {}".format(self.server, self.port, self.channel, self.filename, self.is_on, self.is_printing_chat)
+
+    async def connect(self):
+        self.websocket = await websockets.connect(uri = f"{self.server}:{self.port}", logger = discord_logger, ping_timeout = None, ping_interval = None)
+        await self.websocket.send(f"PASS {self.token}\r\n")
+        await self.websocket.send(f"NICK {self.nickname}\r\n")
+        await self.websocket.send(f"JOIN #{self.channel}\r\n")
 
     #Connects to Twitch Chat IRC, reads messages, writes to a txt file
     async def listen(self, stream_id):
         discord_logger.debug("THIS WORKS AND SHOULD BE LOGGING")
         print("THIS WORKS AND SHOULD BE LOGGING")
-        self.websocket = await self.session.ws_connect(f"{self.server}:{self.port}")
-        await self.websocket.send_str(f"PASS {self.token}\n")
-        await self.websocket.send_str(f"NICK {self.nickname}\n")
-        await self.websocket.send_str(f"JOIN #{self.channel}\n")
+        await self.connect()
         cursor = await conn.cursor()
         file = open(self.filename, "w", encoding = "utf-8")
         while self.is_on:
-            discord_logger.debug(f"Custom: Entering {self.channel}'s listen Loop")
+            #discord_logger.debug(f"Custom: Entering {self.channel}'s listen Loop")
             try:
-                resp = await self.websocket.receive_str()
-                now = datetime.datetime.now(datetime.timezone.utc)
-                date_time = now.strftime("%Y-%m-%d %H:%M:%S")
-                messages_list = filter(None, resp.split("\n"))
-                for message in messages_list:
-                    if "PRIVMSG" in message:
-                        chatter = (message.split('!')[0])[1:]
-                        msg = message.split(f"#{self.channel}", 1)[1][2:]
+                resp = await self.websocket.recv()
+                if resp:
+                    now = datetime.datetime.now(datetime.timezone.utc)
+                    date_time = now.strftime("%Y-%m-%d %H:%M:%S")
+                    messages_list = filter(None, resp.split("\r\n"))
+                    for message in messages_list:
+                        if message.startswith("PING"):
+                            discord_logger.debug("WE'RE PONGING POGGERS")
+                            await self.websocket.send("PONG :tmi.twitch.tv\r\n")
+                        elif "PRIVMSG" in message:
+                            chatter = (message.split('!')[0])[1:]
+                            msg = message.split(f"#{self.channel}", 1)[1][2:]
+
                         await cursor.execute("INSERT INTO messages \
                                             (stream_id, chatter, channel, \
                                              message, datetime) VALUES(?, ?, ?, ?, ?);", \
                                             (stream_id, chatter, self.channel, msg, date_time))
                         await conn.commit()
 
-                    clean_str = f"[{date_time} UTC]{message}"
-                    file.write(clean_str)
-                    discord_logger.debug("Custom: After file write")
-                    if self.is_printing_chat:
-                        print(clean_str)  
+                        clean_str = f"[{date_time} UTC]{message}"
+                        file.write(clean_str)
+                        #discord_logger.debug("Custom: After file write")
+                        if self.is_printing_chat:
+                            print(clean_str)  
+                else:
+                    discord_logger.debug(resp)
+
             except Exception as e:
                 #writer.write("CAP REQ :twitch.tv/membership twitch.tv/tags twitch.tv/commands\n".encode("utf-8"))
                 discord_logger.debug(f"Exception type = {str(type(e))} ::: {str(e)}")
+                #discord_logger.debug(f"{resp}")
                 await self.websocket.close()
                 await cursor.close()
-                file.close()
-                return
+                #file.close()
+                #self.is_on = False
+                discord_logger.exception(e)
+                file.write("Reopening Chat Connection")
+                await self.connect()
 
         await self.websocket.close()
         await cursor.close()
@@ -312,7 +329,7 @@ class LogBot(discord.Client):
             #5 minute grace period for stream crash/restarts and lower api calls
             elif current.is_on:
                 discord_logger.debug("CUSTOM: {}'s autolog loop in current.is_on".format(user))
-                await asyncio.sleep(300)
+                await asyncio.sleep(15)
             else:
                 discord_logger.debug("CUSTOM: {}'s autolog loop in else".format(user))
                 await asyncio.sleep(15)
@@ -334,11 +351,13 @@ class LogBot(discord.Client):
         discord_logger.debug("CUSTOM: {} autolog task has ended".format(user))
         return
     
-    async def on_ready(self):
+    async def setup_hook(self):
         global conn
         conn = await aiosqlite.connect("suite.db")
         await conn.execute('pragma foreign_keys=1')
-        print('We have logged in as {0.user}'.format(self))
+
+    async def on_ready(self):
+        global conn
 
     async def cmd_check(self, message):
         words = message.content.split()
@@ -545,19 +564,25 @@ def setup_database():
     conn.commit()
 
 def main():
-    client = LogBot()
+    intents = discord.Intents.default()
+    intents.message_content = True  
+    intents.typing = False 
+    intents.presences = False 
+    client = LogBot(intents = intents)
     client.initialize()
     global discord_logger
     discord_logger = logging.getLogger('discord')
     discord_logger.setLevel(logging.DEBUG)
+    logging.getLogger('discord.http').setLevel(logging.INFO)
     str = get_new_log_name()
     handler = logging.FileHandler(filename=str, encoding='utf-8', mode='w')
     del str
+    del intents
     handler.setFormatter(logging.Formatter('%(asctime)s:%(levelname)s:%(name)s: %(message)s'))
     discord_logger.addHandler(handler)
     setup_database()
     print("Opened database successfully!")
-    client.run(config.DISCORD_TOKEN)
+    client.run(config.DISCORD_TOKEN, log_handler = None)
 
 if __name__ == "__main__":
     main()

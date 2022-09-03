@@ -20,8 +20,8 @@ CREATE TABLE IF NOT EXISTS livestreams (
 
 CREATE TABLE IF NOT EXISTS videos (
     id INTEGER PRIMARY KEY,
-    twitch_id INTEGER NOT NULL,--as returned by twitch api
-    stream_id INTEGER,
+    twitch_id INTEGER NOT NULL UNIQUE,--as returned by twitch api
+    stream_id INTEGER, --probably unique, but wont enforce
     user_id INTEGER NOT NULL,
     created_at TEXT,
     published_at TEXT,

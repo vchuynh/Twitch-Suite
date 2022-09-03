@@ -1,3 +1,9 @@
+# 0.2.0 Changelog
+* Fixed major listen() bug that incorrectly handled Ping/Pong messages.  
+  * Chat loggers were closing unexpectedly in a very short period of time.  
+* Upgraded to support discord.py to 2.0 as result of Discord's mandatory changes to intents
+* Minor code refactoring
+
 # 0.1.0 Changelog
 * Switched from irc to websockets for chat logging
 * Implemented fully functional sqlite database
