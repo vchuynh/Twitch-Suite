@@ -87,7 +87,7 @@ class Logger():
                             await conn.commit()
 
                         clean_str = f"[{date_time} UTC]{message}"
-                        file.write(clean_str)
+                        file.write(f"{clean_str}\n")
                         #discord_logger.debug("Custom: After file write")
                         if self.is_printing_chat:
                             print(clean_str)  
